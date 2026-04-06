@@ -68,24 +68,60 @@ st.markdown(
     """
     <style>
     .stApp {
-        background: linear-gradient(180deg, #f7fbff 0%, #eef3f9 100%);
+        background: linear-gradient(180deg, #f3f7ff 0%, #e8eef8 100%);
+        color: #10233f;
+    }
+    .stApp h1, .stApp h2, .stApp h3, .stApp h4, .stApp p, .stApp label, .stApp li, .stApp div {
+        color: #10233f;
+    }
+    [data-testid="stSidebar"] {
+        background: linear-gradient(180deg, #111827 0%, #1e293b 100%);
+    }
+    [data-testid="stSidebar"] * {
+        color: #f8fafc !important;
+    }
+    [data-testid="stSidebar"] [role="radiogroup"] label {
+        border: 1px solid rgba(148, 163, 184, 0.45);
+        border-radius: 10px;
+        margin-bottom: 0.3rem;
+        padding: 0.45rem 0.55rem;
+        background: rgba(15, 23, 42, 0.4);
     }
     .app-card {
         background: #ffffff;
         border-radius: 16px;
         padding: 1.25rem 1.25rem 0.75rem 1.25rem;
-        border: 1px solid #dbe6f3;
-        box-shadow: 0 8px 20px rgba(44, 62, 80, 0.07);
+        border: 1px solid #c6d5ea;
+        box-shadow: 0 8px 26px rgba(15, 23, 42, 0.08);
         margin-bottom: 1rem;
+    }
+    .stMetric {
+        background: #f8fbff;
+        border: 1px solid #d7e4f3;
+        border-radius: 12px;
+        padding: 0.4rem 0.75rem;
+    }
+    .stFileUploader {
+        background: #f8fbff;
+        border: 1px solid #d7e4f3;
+        border-radius: 12px;
+        padding: 0.25rem 0.75rem;
+    }
+    .stProgress > div > div > div > div {
+        background: linear-gradient(90deg, #0ea5e9 0%, #2563eb 100%);
     }
     .stButton > button {
         width: 100%;
         border-radius: 10px;
         font-weight: 600;
         height: 2.8rem;
-        background: #0c4a6e;
+        background: linear-gradient(90deg, #0369a1 0%, #1d4ed8 100%);
         color: white;
         border: none;
+        box-shadow: 0 8px 16px rgba(29, 78, 216, 0.2);
+    }
+    .stButton > button:hover {
+        filter: brightness(1.05);
     }
     </style>
     """,
