@@ -51,6 +51,34 @@ def align_features(df: pd.DataFrame, expected: list[str]) -> pd.DataFrame:
     return aligned[expected]
 
 
+def prepare_legacy_input(
+    data: pd.DataFrame, expected_feature_count: int
+) -> tuple[np.ndarray, list[str]]:
+    """Prepare numeric matrix for legacy scaler/model with soft alignment."""
+    warnings: list[str] = []
+    numeric_data = data.select_dtypes(include=[np.number]).copy()
+
+    if numeric_data.shape[1] == 0:
+        raise ValueError("No numeric columns found in uploaded file.")
+
+    if numeric_data.shape[1] > expected_feature_count:
+        warnings.append(
+            f"Found {numeric_data.shape[1]} numeric columns. Using first {expected_feature_count} for legacy model."
+        )
+        numeric_data = numeric_data.iloc[:, :expected_feature_count]
+    elif numeric_data.shape[1] < expected_feature_count:
+        missing = expected_feature_count - numeric_data.shape[1]
+        warnings.append(
+            f"Found only {numeric_data.shape[1]} numeric columns. Padding {missing} missing columns with 0.0."
+        )
+        for idx in range(missing):
+            numeric_data[f"_pad_{idx}"] = 0.0
+
+    numeric_data = numeric_data.fillna(numeric_data.median(numeric_only=True)).fillna(0.0)
+    matrix = numeric_data.to_numpy(dtype=float)
+    return matrix, warnings
+
+
 def risk_label(probability: float, threshold: float) -> tuple[str, str]:
     moderate_threshold = max(0.30, threshold * 0.7)
     high_threshold = threshold
@@ -161,8 +189,11 @@ if mode == "Medical File Check":
         st.write("File preview")
         st.dataframe(data.head(), use_container_width=True)
 
+        source_target = None
         for col in ["label", "target", "seizure", "risk"]:
             if col in data.columns:
+                if source_target is None:
+                    source_target = pd.to_numeric(data[col], errors="coerce")
                 data = data.drop(columns=[col])
 
         try:
@@ -170,24 +201,51 @@ if mode == "Medical File Check":
                 input_df = align_features(data, artifacts["feature_names"])
                 probabilities = artifacts["model"].predict_proba(input_df)[:, 1]
             else:
-                if data.shape[1] != artifacts["feature_count"]:
-                    st.error(
-                        f"Expected {artifacts['feature_count']} columns, but got {data.shape[1]}."
-                    )
-                    st.stop()
-                scaled = artifacts["scaler"].transform(data)
+                legacy_input, legacy_warnings = prepare_legacy_input(
+                    data, artifacts["feature_count"]
+                )
+                for warning_text in legacy_warnings:
+                    st.warning(warning_text)
+                scaled = artifacts["scaler"].transform(legacy_input)
                 probabilities = artifacts["model"].predict_proba(scaled)[:, 1]
 
             avg_probability = float(np.mean(probabilities))
             risk, message = risk_label(avg_probability, artifacts["threshold"])
+            row_predictions = (probabilities >= artifacts["threshold"]).astype(int)
 
             st.metric("Average seizure risk", f"{avg_probability * 100:.2f}%")
             st.progress(int(max(0, min(100, avg_probability * 100))))
             st.write(f"**Risk level: {risk}**")
             st.info(message)
 
+            if source_target is not None:
+                valid_target = source_target.dropna().astype(int)
+                if len(valid_target) > 0:
+                    seizure_ratio = float((valid_target == 1).mean())
+                    if seizure_ratio > 0:
+                        st.error(
+                            f"Seizure found in uploaded file ({seizure_ratio * 100:.1f}% positive rows)."
+                        )
+                    else:
+                        st.success("No seizure label found in uploaded file (all rows are non-seizure).")
+
+            if int(row_predictions.max()) == 1:
+                st.error("Model decision: **SEIZURE DETECTED**. Contact emergency services immediately.")
+            else:
+                st.success("Model decision: **NO RISK**.")
+
             st.subheader("Risk by uploaded rows")
             st.bar_chart(pd.DataFrame({"probability": probabilities[:200]}))
+
+            st.subheader("Row-level model output")
+            preview = pd.DataFrame(
+                {
+                    "row_index": np.arange(len(probabilities)),
+                    "probability": probabilities,
+                    "prediction": np.where(row_predictions == 1, "SEIZURE", "NO RISK"),
+                }
+            ).head(200)
+            st.dataframe(preview, use_container_width=True)
 
         except Exception as exc:  # noqa: BLE001
             st.error(f"Prediction failed: {exc}")
