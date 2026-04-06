@@ -26,11 +26,19 @@ def load_model_artifacts() -> dict:
 
     if LEGACY_MODEL_PATH.exists() and LEGACY_SCALER_PATH.exists():
         legacy_model = joblib.load(LEGACY_MODEL_PATH)
+        legacy_scaler = joblib.load(LEGACY_SCALER_PATH)
+
+        model_feature_count = int(getattr(legacy_model, "n_features_in_", 0) or 0)
+        scaler_feature_count = int(getattr(legacy_scaler, "n_features_in_", 0) or 0)
+        expected_feature_count = model_feature_count or scaler_feature_count
+
         return {
             "type": "legacy",
             "model": legacy_model,
-            "scaler": joblib.load(LEGACY_SCALER_PATH),
-            "feature_count": int(legacy_model.n_features_in_),
+            "scaler": legacy_scaler,
+            "model_feature_count": model_feature_count,
+            "scaler_feature_count": scaler_feature_count,
+            "feature_count": expected_feature_count,
             "threshold": 0.5,
             "metrics": {},
         }
@@ -206,8 +214,20 @@ if mode == "Medical File Check":
                 )
                 for warning_text in legacy_warnings:
                     st.warning(warning_text)
-                scaled = artifacts["scaler"].transform(legacy_input)
-                probabilities = artifacts["model"].predict_proba(scaled)[:, 1]
+
+                scaler_feature_count = artifacts.get("scaler_feature_count", 0)
+                if scaler_feature_count and scaler_feature_count == legacy_input.shape[1]:
+                    model_input = artifacts["scaler"].transform(legacy_input)
+                else:
+                    model_input = legacy_input
+                    if scaler_feature_count:
+                        st.warning(
+                            "Legacy scaler expects "
+                            f"{scaler_feature_count} features, but legacy model expects "
+                            f"{legacy_input.shape[1]}. Skipping scaler to keep model input valid."
+                        )
+
+                probabilities = artifacts["model"].predict_proba(model_input)[:, 1]
 
             avg_probability = float(np.mean(probabilities))
             risk, message = risk_label(avg_probability, artifacts["threshold"])
