@@ -26,13 +26,28 @@ def load_model_artifacts() -> dict:
 
     if LEGACY_MODEL_PATH.exists() and LEGACY_SCALER_PATH.exists():
         legacy_model = joblib.load(LEGACY_MODEL_PATH)
+        legacy_scaler = joblib.load(LEGACY_SCALER_PATH)
+
+        scaler_features = int(getattr(legacy_scaler, "n_features_in_", 0) or 0)
+        model_features = int(getattr(legacy_model, "n_features_in_", 0) or 0)
+
+        use_scaler = bool(scaler_features and model_features and scaler_features == model_features)
+        compatibility_warning = None
+        if not use_scaler and scaler_features and model_features and scaler_features != model_features:
+            compatibility_warning = (
+                f"Legacy scaler/model mismatch detected (scaler expects {scaler_features}, "
+                f"model expects {model_features}). Using model input directly."
+            )
+
         return {
             "type": "legacy",
             "model": legacy_model,
-            "scaler": joblib.load(LEGACY_SCALER_PATH),
-            "feature_count": int(legacy_model.n_features_in_),
+            "scaler": legacy_scaler,
+            "use_scaler": use_scaler,
+            "feature_count": model_features or scaler_features,
             "threshold": 0.5,
             "metrics": {},
+            "compatibility_warning": compatibility_warning,
         }
 
     raise FileNotFoundError(
@@ -169,6 +184,8 @@ except FileNotFoundError as exc:
 
 st.sidebar.header("Model Details")
 st.sidebar.write(f"Loaded model type: **{artifacts['type']}**")
+if artifacts.get("compatibility_warning"):
+    st.sidebar.warning(artifacts["compatibility_warning"])
 if artifacts["metrics"]:
     for metric_name, value in artifacts["metrics"].items():
         st.sidebar.write(f"{metric_name}: **{value:.3f}**")
@@ -206,8 +223,11 @@ if mode == "Medical File Check":
                 )
                 for warning_text in legacy_warnings:
                     st.warning(warning_text)
-                scaled = artifacts["scaler"].transform(legacy_input)
-                probabilities = artifacts["model"].predict_proba(scaled)[:, 1]
+                if artifacts.get("use_scaler", False):
+                    model_input = artifacts["scaler"].transform(legacy_input)
+                else:
+                    model_input = legacy_input
+                probabilities = artifacts["model"].predict_proba(model_input)[:, 1]
 
             avg_probability = float(np.mean(probabilities))
             risk, message = risk_label(avg_probability, artifacts["threshold"])
