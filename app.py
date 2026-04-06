@@ -31,6 +31,27 @@ def load_model_artifacts() -> dict:
         model_feature_count = int(getattr(legacy_model, "n_features_in_", 0) or 0)
         scaler_feature_count = int(getattr(legacy_scaler, "n_features_in_", 0) or 0)
         expected_feature_count = model_feature_count or scaler_feature_count
+        use_scaler = bool(
+            model_feature_count
+            and scaler_feature_count
+            and model_feature_count == scaler_feature_count
+        )
+
+        compatibility_warning = None
+        if not expected_feature_count:
+            compatibility_warning = (
+                "Could not detect expected feature count from legacy model/scaler metadata. "
+                "The app will infer numeric columns directly from uploaded data."
+            )
+        elif (
+            model_feature_count
+            and scaler_feature_count
+            and model_feature_count != scaler_feature_count
+        ):
+            compatibility_warning = (
+                f"Legacy scaler/model mismatch detected (scaler expects {scaler_feature_count}, "
+                f"model expects {model_feature_count}). Using model input directly."
+            )
 
         return {
             "type": "legacy",
@@ -39,8 +60,10 @@ def load_model_artifacts() -> dict:
             "model_feature_count": model_feature_count,
             "scaler_feature_count": scaler_feature_count,
             "feature_count": expected_feature_count,
+            "use_scaler": use_scaler,
             "threshold": 0.5,
             "metrics": {},
+            "compatibility_warning": compatibility_warning,
         }
 
     raise FileNotFoundError(
@@ -68,6 +91,12 @@ def prepare_legacy_input(
 
     if numeric_data.shape[1] == 0:
         raise ValueError("No numeric columns found in uploaded file.")
+
+    if expected_feature_count <= 0:
+        warnings.append(
+            "Legacy feature count is unknown. Using all numeric columns from uploaded data."
+        )
+        expected_feature_count = numeric_data.shape[1]
 
     if numeric_data.shape[1] > expected_feature_count:
         warnings.append(
@@ -215,11 +244,11 @@ if mode == "Medical File Check":
                 for warning_text in legacy_warnings:
                     st.warning(warning_text)
 
-                scaler_feature_count = artifacts.get("scaler_feature_count", 0)
-                if scaler_feature_count and scaler_feature_count == legacy_input.shape[1]:
+                if artifacts.get("use_scaler", False):
                     model_input = artifacts["scaler"].transform(legacy_input)
                 else:
                     model_input = legacy_input
+                    scaler_feature_count = artifacts.get("scaler_feature_count", 0)
                     if scaler_feature_count:
                         st.warning(
                             "Legacy scaler expects "
